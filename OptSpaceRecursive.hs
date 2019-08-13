@@ -310,6 +310,19 @@ spoptn ps = let --standardize the processes
              
              in (spmin, schedule''')
 
+----searchValleys and its help-function----
+--find the global valley of all processes
+searchValleys :: [Process] -> [Operation]
+searchValleys ps = map searchValley ps 
+
+--find the global valley of one process
+searchValley :: Process -> Operation
+searchValley (o:rest) = searchValley_h rest o
+searchValley_h [] valley = valley
+searchValley_h (o:rest) valley = if get_space o <= get_space valley
+                                 then searchValley_h rest o
+                                 else searchValley_h rest valley             
+
 ----standardize and its help-functions----
 {-
 The function standardizes a list of linear processes. Output is a 7er-tupel:
@@ -507,93 +520,111 @@ matchM4 (Op _ _ sp1 _ _ _ _) (Op _ _ sp2 _ _ _ _)
         = (sp1 < sp2 && sp2 > sp3 && sp3 < sp4 && sp1 <= sp3 && sp2 <= sp4)
 
 ----scan and its help-functions----
---SPOPTN Alg --scan
+{-
+The function scan heap-sorts operations (before the global valley) of
+standardized processes by space increase between two neighboring operations
+(a loacl valley and a local peak). It returns a tuple, which contains the minimal
+space consumption of executing the processes and the corresponding schedul.
+-}
 scan:: [Process] -> [Operation]-> (Int, [[Operation]])  --(spmin, schedule)
-scan procs valleys = let heap = toHeap procs
+scan procs valleys = let --initiate the heap
+                         heap = toHeap procs
+                         
+                         --space of current state, which equals to the sum of space
+                         --of the first op of all processes
                          s =  foldl (\x y -> x + (get_space $ head y)) 0 procs
+                         
+                         --peak space consumption of the schedule
                          m = s
+                         
+                         --first state of the schedule, which consists of first
+                         --op of all processes
                          first_state = map head procs
+                         
                      in scan_h heap procs valleys s m [first_state]
 
-scan_h :: [(Int,Int)] -> [Process] -> [Operation] -> Int -> Int -> [[Operation]] -> (Int, [[Operation]])
---arguments: heap, processes, valleys, whether all valleys are passed, space, max. space, schedule
+{-help-function of scan. In each round, the min-element of the heap is omitted.
+The corresponding process propagates by two operations (two states will be inserted
+into the schedule; the space increase of the next two ops will be inserted into the
+heap), if its global valley has not been met. The peak space of the schedule is
+memorized during the recursion. The recursion stops, when the heap becomes empty
+(all global valleys has been met).
+--arguments: heap, processes, global valleys, space of current state, max. space
+             ,schedule
 --output: (max. Space, schedule)
-
-{-
-For the case that all valleys are already in schedule (Heap becomes empty for the first time),
-if there are still unhandled processes in the list, start a new heap-sort to complete the schedule 
 -}
-{-scan_h [] procs valleys False s m schedule
-        = let procs' = map (\x -> if length x == 1 then replicate 3 (head x) else x) procs
-                            -- littel trick for keeping the index of processes unchanged
-              heap = toHeap procs'
-          in if all (\x -> length x == 1) procs --no more unhandled proccesses
-             then scan_h [] procs valleys True s m schedule
-             else scan_h heap procs' valleys True s m schedule
--}
---The heap became empty. The schedule is complete.
-scan_h [] procs valleys s m schedule = (m, reverse schedule)
-
+scan_h :: [(Int,Int)] -> [Process] -> [Operation] -> Int -> Int -> [[Operation]]
+          -> (Int, [[Operation]])
 
 scan_h (h:rest) procs valleys s m schedule
-        = let -- h ist the first element of min-heap, and is a tupel consisting of the next incline of a process and the index of the process
-              index_h = snd h
+        = let --get the process id and space increase of the min-element of heap
+              index_h = snd h 
               dist_h = fst h
               
-              
-              --The process whose next peak has the fewest incline
+              --get the process having the process id
               selected_proc = procs!!index_h
               
-              --space usage and max sapce usage for the next recursion
+              --space usage and max. sapce usage for the next round
               s_new = if (not isGlobalValley)
-                      then s + (get_space (selected_proc !! 2) - get_space (selected_proc !! 0))
+                      then s + (get_space (selected_proc !! 2)
+                             - get_space (selected_proc !! 0))
                       else s
               m_new = if (not isGlobalValley)
                       then max m (s + dist_h)
                       else m
               
-              --list of processes for the next recursion
-              procs' = map (\x -> if ((procs !! index_h) == x) &&
-                                     (not isGlobalValley)
+              --processes for the next round. Only the process having the process
+              --id might propagate (if its global valley has not been visited.
+              procs' = map (\x -> if ((procs !! index_h) == x)
+                                     && (not isGlobalValley)
                                   then drop 2 x else x) procs
               
-              --The first and second elements of the seleced process
+              --The two operations of the min-element
               selected_ops = [selected_proc !! 2,selected_proc !! 1]
-              isGlobalValley = valleys !! index_h `elem` [selected_proc !! 0,selected_proc !! 1]
-              --The first element of other processes.
+              
+              --whether the global valley of the process having the process id is met
+              isGlobalValley = valleys !! index_h `elem`
+                               [selected_proc !! 0,selected_proc !! 1]
+              
+              --The first element of other processes
               ops_not_changed = [map head $ filter (\x -> procs!!index_h /= x) procs]
               
               --generate two states for schedule
               states = [Heap.sort(p:ps) | p <- selected_ops, ps <- ops_not_changed]
               
+              --insert the states into the schedule, if the global vally of the 
+              --propagating process has not been visted
               schedule_new = if not isGlobalValley
                              then states ++ schedule
                              else schedule
+              
+              --heap for the next round. If there are enough operations in the
+              --propagating process and if the global valley has not been met,
+              --insert a new element, which contains the space increase of the next
+              --two operations of the process, into the heap and sort it.
+              --If that is not the case, let the new heap be the old heap without
+              --the min-element. 
               heap_new = if (length selected_proc >= 4) && (not isGlobalValley)
-                         then let elem_new = ((get_space(selected_proc!!3)- get_space(selected_proc!!2)), index_h)
+                         then let elem_new = ((get_space(selected_proc!!3)
+                                             - get_space(selected_proc!!2)), index_h)
                               in Heap.sort $ elem_new:rest
                          else rest
-              {-schedule_new = if head states == last states --just to remove duplicate states
-                             then if head schedule == head states
-                                  then schedule
-                                  else (head schedule):schedule
-                             else states ++ schedule
-              -}
           in scan_h heap_new procs' valleys s_new m_new schedule_new
 
-searchValleys :: [Process] -> [Operation]
-searchValleys ps = map searchValley ps 
-
-searchValley :: Process -> Operation
-searchValley (o:rest) = searchValley_h rest o
-searchValley_h [] valley = valley
-searchValley_h (o:rest) valley = if get_space o <= get_space valley then searchValley_h rest o else searchValley_h rest valley             
-              
---heap-sort the defferences of 2nd and 1st element of all processes 
+--Break condition: the heap became empty. The schedule is complete.
+scan_h [] procs valleys s m schedule = (m, reverse schedule)
+         
+{-
+toHeap inserts the space increase of the first and second operations of all
+processes into a list recursively and heap-sorts it.
+-}
 toHeap :: [Process] -> [(Int,Int)]
 toHeap = Heap.sort . toHeap_h 0
+
+toHeap_h :: Int -> [Process] -> [(Int,Int)]
 toHeap_h _ [] = []
-toHeap_h index (p:rest)= ((get_space (p!!1) - get_space (p!!0)),index):toHeap_h (index+1) rest
+toHeap_h index (p:rest)=
+        ((get_space (p!!1) - get_space (p!!0)),index):toHeap_h (index+1) rest
 ------------------------------------------------------------------------------------------------------------------
 --some basic functions
 
@@ -661,7 +692,7 @@ p6 = [(1,[2,5,4,1]),(2,[1,3]),(3,[3,1])]
 r6 = [Rel 1 1 [2]]
 test_p6 = print_spopt_schedule p6 r6
 -----------------------------------------------
---TODO: debug!
+
 p:: [(Int, [Int])]
 p = [(1,[1,3,2,3]),(2,[3]),(3,[2,3,1]),(4,[3,1]),(5,[1,5,4])]
 r = [Rel 4 1 [3],Rel 5 1 [2],Rel 5 2 [1,4]]
