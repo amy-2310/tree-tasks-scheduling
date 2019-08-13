@@ -201,57 +201,89 @@ recover_h (op@(Op _ _ _ ops1 _ _ _):[]) schedule
         = let state = (foldl (\x y -> get_space y + x) 0 ops1,
                        sort $ map op_to_op_out ops1)
           in reverse (state:schedule)
+
+--help-function. Convert data type Operation to Operation_out
+op_to_op_out (Op pid oid sp _ _ _ _) = OP pid oid sp
 -------------------------------------------------------------------------------------------------------------------
 {-
-Firstly, by optimizing n tree-like processes, we get n linear merged processes. (map f procs)
-Then, by optimizing the n linear merged processes, we get one merged process. (spoptn_trans)
+spoptnr optimizes tree-like processes and returned a pseudo-process.
+Firstly, by optimizing n tree-like processes, we get n linear pseudo-processes. (map f procs)
+Then, by optimizing the n linear pseudo-processes, we get one pseudo-process. (spoptn_trans)
 -}
 spoptnr :: [Process] -> Process 
 spoptnr procs = spoptn_trans $ map f procs
 
 {-
-Calculate the schedule with minimal space consumption of one tree-like process and transform
-the schedule into a single process.
-The function checks every operation recursively: if an operation generates no sub-processes,
-it will not be changed because there is nothing to calculate. If an operation has sub-processes,
-the remaining process and the sub-processes will be optimized and transformed into a single process.
-Because these processes can also be tree-like, the function has to be applied again on each of them.
+f is a help-function of spoptnr. It optimizes one tree-like process and returned
+a pseudo-process. It goes through the operations of the tree-like process recursively.
+For each op, if it generates no sub-process, it will not be changed. Otherwise,
+the remaining ops (is also a process) and the sub-processes will together be
+optimized by spoptn_trans. However, since these processes can also have forks,
+the function has to be appleid again to each of them.
 -}
 f :: Process -> Process
 f [] = []
-f (op@(Op pid oid sp ops ps front back):rest)
-  = --trace (show rest) $
-          if null ps then op:f rest --the op does not generate any sub-processes
-          else --the op generate at least one sub-process
-            if null rest --if the op is the last one of the main-process
-            then (Op pid oid sp ops [] front back): (spoptn_trans $ map f ([(Op pid oid sp ops [] front back)]:ps))--the op must runs till the end. The sub-process-list must be emptied so that the break condition can be met.
-            else (Op pid oid sp ops [] front back): (spoptn_trans $ map f (rest:ps))
+f (op@(Op pid oid sp ops ps front back):rest) = 
+    if null ps --if the op does not generate any sub-process
+    then op:f rest --call itself to optimize the tree below
+    else
+        if null rest --if the op is the last op of the process (special case)
+        then (Op pid oid sp ops [] front back):
+                (spoptn_trans $ map f ([(Op pid oid sp ops [] front back)]:ps))
+                --the op must run till the end.
+                --the sub-process-list must be emptied so that the break condition can be met.
+        
+        else (Op pid oid sp ops [] front back): (spoptn_trans $ map f (rest:ps))
 ----------------------------------------------------------------------------------------------------------------            
---optimize parallel processes and transform the opimal schedule into a single process
+{-
+spoptn_trans is an extention to SPOPTN. It calls spoptn to optimize linear
+processes and then transforms the resulting space-optimal schedule into a
+pseudo-process.
+-}
 spoptn_trans :: [Process] -> Process
 spoptn_trans procs = transform $ snd $ spoptn procs
+
 {-
-Transform a schedule into a process. A state in the Schedule is transformed into an operation.
-All operations in a state are packed into the first list of the new operation.
-The space consumption of the new operation is the sum of space consumption of all operations in the state.
-All front-removed and back-removed ops of all ops in a state are pack into the third and forth list of the new op.
-The pid and oid of the first operation in the state are used as the pid and oid of the new operation.
+transform is a help-function of spoptn_trans. It transforms a schedule into a
+pseudo-process. Each state of the schedule is transformed into an pseudo-op:
+all ops of the state are packed into the first list of the pseudo-op. If an op is
+already a pseudo-op, its component-ops in its first list are also backed into the
+first list of the new pseudo-op.
+The space consumption of the pseudo-op is the sum of space of all ops
+in the state.
+All predecessors and successors of all ops in the state are pack into the third
+and forth list of the pseudo-op respectively.
+The pid and oid of the first op in the state are used as the pid and oid of the
+pseudo-op.
 -}
---transform a schedule into a process
+--transform a schedule into a pseudo-process
 transform :: [[Operation]] -> Process
 transform [] = []
 transform (state:rest) = transform_op state : transform rest
 
---transform a state into a operation
+--transform a state into a pseudo-op
 transform_op :: [Operation] -> Operation
 transform_op state@((Op pid oid sp ops ps front back):rest)
-        = let sp_new = foldl (\x y -> x + (get_space y)) 0 state --add up all the space usages
-              ops_new = foldr (\x y -> if null (get_ops x) --if op does not have ops happening at the same time
-                                       then (clear_ops_fb x):y
-                                       else (map clear_ops_fb $ get_ops x) ++ y) [] state
+        = let --add up the space of all ops of the state
+              sp_new = foldl (\x y -> x + (get_space y)) 0 state
+              
+              --generate the first list of the pseudo-op: if an op of the state
+              --is not a pseudo-op, clear its successor- and predecessor-lists and
+              --insert it into ops_new. If an op is pseudo, get the ops in its
+              --first list, clear their successor- and predecessor-lists, and insert
+              --them together with the op into ops_new.
+              ops_new = foldr (\x y ->
+                              if null (get_ops x)
+                              then (clearPredSucc x):y
+                              else (map clearPredSucc $ get_ops x) ++ y) [] state
+              
+              --generate the predecessor-list of pseudo-op
               front_new = foldr (\x y -> (get_ops_f x) ++ y) [] state
+              
+              --generate the successor-list of pseudo-op
               back_new = foldr (\x y -> (get_ops_b x) ++ y) [] state
-          in Op pid oid sp_new ops_new ps front_new back_new
+              
+          in Op pid oid sp_new ops_new ps front_new back_new --pseudo-op
                                                 
 --------------------------------------------------------------------------------
 --Implementation of algorithm SPOPTN
@@ -448,39 +480,39 @@ removeMs_h p_new p_old@(oi:oi1:oi2:oi3:rest)
          ops_return = reverse $ take 2 p_new
          --oi >= oi1 >= oi2
          p_old_matchM1 = let --get oi1's predecessor, oi1 it self, and its successors
-                             ops_toAdd = get_ops_f oi1 ++ [clear_ops_fb oi1]
+                             ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
                                          ++ get_ops_b oi1
                              
                              --let oi memorize the above operations as its successors
-                             oi' = add_ops_b oi ops_toAdd
+                             oi' = addSucc oi ops_toAdd
                          in ops_return ++ (oi':oi2:oi3:rest)
          
          --oi <= oi1 <= oi2
-         p_old_matchM2 = let ops_toAdd = get_ops_f oi1 ++ [clear_ops_fb oi1]
+         p_old_matchM2 = let ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
                                          ++ get_ops_b oi1
                              
                              --let oi2 memorize the above operations as its predecessors
-                             oi2' = add_ops_f oi2 ops_toAdd
+                             oi2' = addPred oi2 ops_toAdd
                          in ops_return ++ (oi:oi2':oi3:rest)
          
          --oi is the peak in pattern M3
          p_old_matchM3 = let --get oi1's predecessor, oi1 itself, and its successors,
                              --oi2's prdecessor, oi2 itself, and its successors
-                             ops_toAdd = get_ops_f oi1 ++ [clear_ops_fb oi1]
+                             ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
                                          ++ get_ops_b oi1 ++ get_ops_f oi2
-                                         ++ [clear_ops_fb oi2] ++ get_ops_b oi2
+                                         ++ [clearPredSucc oi2] ++ get_ops_b oi2
                              
                              --let oi memorize the above operations as its successors
-                             oi' = add_ops_b oi ops_toAdd
+                             oi' = addSucc oi ops_toAdd
                          in ops_return ++ (oi':oi3:rest)
          
          --oi3 is the peak in pattern M4                
-         p_old_matchM4 = let ops_toAdd = get_ops_f oi1 ++ [clear_ops_fb oi1]
+         p_old_matchM4 = let ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
                                          ++ get_ops_b oi1 ++ get_ops_f oi2
-                                         ++ [clear_ops_fb oi2] ++ get_ops_b oi2
+                                         ++ [clearPredSucc oi2] ++ get_ops_b oi2
                              
                              --let oi3 memorize the above operations as its predecessors
-                             oi3' = add_ops_f oi3 ops_toAdd
+                             oi3' = addPred oi3 ops_toAdd
                          in ops_return ++ (oi:oi3':rest)
 
 --case that there are only three operations left to be checked.
@@ -491,13 +523,13 @@ removeMs_h p_new p_old@[oi,oi1,oi2]
         where
          p_new' = (drop 2 p_new)
          ops_return = reverse $ take 2 p_new
-         p_old_matchM1 = let ops_toAdd = get_ops_f oi1 ++ [clear_ops_fb oi1]
+         p_old_matchM1 = let ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
                                          ++ get_ops_b oi1
-                             oi' = add_ops_b oi ops_toAdd
+                             oi' = addSucc oi ops_toAdd
                          in ops_return ++ [oi',oi2]
-         p_old_matchM2 = let ops_toAdd = get_ops_f oi1 ++ [clear_ops_fb oi1]
+         p_old_matchM2 = let ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
                                          ++ get_ops_b oi1
-                             oi2' = add_ops_f oi2 ops_toAdd
+                             oi2' = addPred oi2 ops_toAdd
                          in ops_return ++ [oi,oi2']
 
 --Break condition: there are less than three ops to be checked. No pattern can occur.
@@ -626,7 +658,7 @@ toHeap_h _ [] = []
 toHeap_h index (p:rest)=
         ((get_space (p!!1) - get_space (p!!0)),index):toHeap_h (index+1) rest
 ------------------------------------------------------------------------------------------------------------------
---some basic functions
+--some general help-functions
 
 --functions for data type Operation
 get_pid (Op pid _ _ _ _ _ _) = pid
@@ -636,10 +668,18 @@ get_ops (Op _ _ _ ops _ _ _) = ops
 get_subps (Op _ _ _ _ subps _ _) = subps
 get_ops_f (Op _ _ _ _ _ ops_f _) = ops_f
 get_ops_b (Op _ _ _ _ _ _ ops_b) = ops_b
-add_subps (Op pid oid sp ops subps front back) subps' = (Op pid oid sp ops (subps ++ subps') front back)
-add_ops_f (Op pid oid sp ops ps ops_f ops_b) ops_f_toAdd = (Op pid oid sp ops ps (ops_f_toAdd ++ ops_f) ops_b)
-add_ops_b (Op pid oid sp ops ps ops_f ops_b) ops_b_toAdd = (Op pid oid sp ops ps ops_f (ops_b ++ ops_b_toAdd))
-clear_ops_fb (Op pid oid sp ops ps ops_f ops_b) = (Op pid oid sp ops ps [] [])
+--add sub-processes to an op
+add_subps (Op pid oid sp ops subps front back) subps' =
+        (Op pid oid sp ops (subps ++ subps') front back)
+
+addPred (Op pid oid sp ops ps ops_f ops_b) ops_f_toAdd =
+        (Op pid oid sp ops ps (ops_f_toAdd ++ ops_f) ops_b)
+
+addSucc (Op pid oid sp ops ps ops_f ops_b) ops_b_toAdd =
+        (Op pid oid sp ops ps ops_f (ops_b ++ ops_b_toAdd))
+        
+clearPredSucc (Op pid oid sp ops ps ops_f ops_b) =
+        (Op pid oid sp ops ps [] [])
 
 --get-functions for 7er-tupel
 fst_7 (x,_,_,_,_,_,_) = x
@@ -649,8 +689,7 @@ forth_7 (_,_,_,x,_,_,_) = x
 fifth_7 (_,_,_,_,x,_,_) = x
 sixth_7 (_,_,_,_,_,x,_) = x
 last_7 (_,_,_,_,_,_,x) = x
---convert Operation to Operation_out
-op_to_op_out (Op pid oid sp _ _ _ _) = OP pid oid sp
+
 
 --print a list of anything that can be showed
 print_list list = putStrLn $ toString_list list 
