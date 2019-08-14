@@ -22,7 +22,7 @@ type Program = [Process]
 type Process = [Operation]
 type SubProcess = Process
 data Operation = Op PId OId Space
-                 [Operation] [SubProcess] [Operation] [Operation]
+                 [Operation] [SubProcess] [Predecessor] [Successor]
                  deriving (Show,Eq, Ord)
 {-
 The first list is used to memorize operations in the same state of a schedule. 
@@ -40,6 +40,8 @@ The forth list contains the removed successor of the op...
 type PId = Int
 type OId = Int
 type Space = Int
+type Predecessor = Operation
+type Successor = Operation
 
 --------------------------------------------------------------------------------
 --the main function and its variant
@@ -81,19 +83,19 @@ toProgram ls rs = Heap.sort $ toProgram_h (map toProcess ls) (topo_sort rs)
 toProgram_h:: [Process] -> [Relation] -> Program
 toProgram_h ls ((Rel pid oid ps):r_rest)
         = let --find the process with pid in process-list ls
-              main_p = fromJust $ find (\p -> (get_pid $ head p) == pid) ls
+              main_p = fromJust $ find (\p -> (getPid $ head p) == pid) ls
               
               --find the processes to be inserted into the process with pid in ls
-              sub_ps = filter (\p -> elem (get_pid $ head p) ps) ls
+              sub_ps = filter (\p -> elem (getPid $ head p) ps) ls
               
               --other processes in ls
-              other_ps = filter (\p -> (not $ elem (get_pid $ head p) ps) &&
-                                       (not $ (get_pid $ head p) == pid)
+              other_ps = filter (\p -> (not $ elem (getPid $ head p) ps) &&
+                                       (not $ (getPid $ head p) == pid)
                                 ) ls
               
                --the new process with pid, into which the sub-processes are inserted
-              main_p_new = map (\o -> if get_oid o == oid
-                                      then add_subps o sub_ps
+              main_p_new = map (\o -> if getOid o == oid
+                                      then addSubPs o sub_ps
                                       else o) main_p
               
                --new process-list for the next round
@@ -140,17 +142,17 @@ recover_h (op1@(Op _ _ _ ops1 _ _ after1@(a:as)):op2:rest) schedule
               --get the memorized state out of op1
               --transform the state into an element of output-schedule 
               --such an element is a tupel (space cunsumption of the state, [ops of the state])
-              state = ((foldl (\x y -> (get_space y) + x) 0 ops1),
-                       sort $ map op_to_op_out ops1)
+              state = ((foldl (\x y -> (getSpace y) + x) 0 ops1),
+                       sort $ map toOpOut ops1)
               
               --get the successor(s) of op1
               --if the successor is a pseudo-op, get the ops memorized in its first list
-              successor = if null (get_ops a) then [a] else get_ops a
+              successor = if null (getOps a) then [a] else getOps a
               
               --calculate the new state for the successor(s)
               state_recovered =
                 sort(
-                      (filter (\x -> not $ elem (get_pid x) (map get_pid successor))
+                      (filter (\x -> not $ elem (getPid x) (map getPid successor))
                                ops1
                       ) ++ successor
                     )
@@ -165,14 +167,14 @@ recover_h (op1@(Op _ _ _ ops1 _ _ after1@(a:as)):op2:rest) schedule
 --case that there is no successor of op1, but there is at least one predecessor of op2
 recover_h (op1@(Op _ _ _ ops1 _ _ []):op2@(Op _ _ _ ops2 _ before2@(b:bs) after2):rest) schedule
         = let 
-              state = (foldl (\x y -> get_space y + x) 0 ops1,
-                       sort $ map op_to_op_out ops1)
+              state = (foldl (\x y -> getSpace y + x) 0 ops1,
+                       sort $ map toOpOut ops1)
               
-              predecessor = if null (get_ops b) then [b] else get_ops b
+              predecessor = if null (getOps b) then [b] else getOps b
               
               state_recovered =
                 sort (
-                        (filter (\x -> not $ elem (get_pid x) (map get_pid predecessor))
+                        (filter (\x -> not $ elem (getPid x) (map getPid predecessor))
                                 ops1
                          ) ++ predecessor
                      )
@@ -187,8 +189,8 @@ recover_h (op1@(Op _ _ _ ops1 _ _ []):op2@(Op _ _ _ ops2 _ before2@(b:bs) after2
 
 --case that there is no successor of op1 and nor predecessor of op2
 recover_h (op1@(Op _ _ _ ops1 _ _ []):op2@(Op _ _ _ _ _ [] _):rest) schedule
-        = let state = (foldl (\x y -> get_space y + x) 0 ops1,
-                       sort $ map op_to_op_out ops1)
+        = let state = (foldl (\x y -> getSpace y + x) 0 ops1,
+                       sort $ map toOpOut ops1)
           
           --all states between op1 and op2 are recovered
           --check op2 and op3 in the next round
@@ -198,12 +200,12 @@ recover_h (op1@(Op _ _ _ ops1 _ _ []):op2@(Op _ _ _ _ _ [] _):rest) schedule
 --this op should not have any successor and should have the last state of
 --the schedule. Transform the state and insert it. Done.
 recover_h (op@(Op _ _ _ ops1 _ _ _):[]) schedule
-        = let state = (foldl (\x y -> get_space y + x) 0 ops1,
-                       sort $ map op_to_op_out ops1)
+        = let state = (foldl (\x y -> getSpace y + x) 0 ops1,
+                       sort $ map toOpOut ops1)
           in reverse (state:schedule)
 
 --help-function. Convert data type Operation to Operation_out
-op_to_op_out (Op pid oid sp _ _ _ _) = OP pid oid sp
+toOpOut (Op pid oid sp _ _ _ _) = OP pid oid sp
 -------------------------------------------------------------------------------------------------------------------
 {-
 spoptnr optimizes tree-like processes and returned a pseudo-process.
@@ -265,7 +267,7 @@ transform (state:rest) = transform_op state : transform rest
 transform_op :: [Operation] -> Operation
 transform_op state@((Op pid oid sp ops ps front back):rest)
         = let --add up the space of all ops of the state
-              sp_new = foldl (\x y -> x + (get_space y)) 0 state
+              sp_new = foldl (\x y -> x + (getSpace y)) 0 state
               
               --generate the first list of the pseudo-op: if an op of the state
               --is not a pseudo-op, clear its successor- and predecessor-lists and
@@ -273,15 +275,15 @@ transform_op state@((Op pid oid sp ops ps front back):rest)
               --first list, clear their successor- and predecessor-lists, and insert
               --them together with the op into ops_new.
               ops_new = foldr (\x y ->
-                              if null (get_ops x)
+                              if null (getOps x)
                               then (clearPredSucc x):y
-                              else (map clearPredSucc $ get_ops x) ++ y) [] state
+                              else (map clearPredSucc $ getOps x) ++ y) [] state
               
               --generate the predecessor-list of pseudo-op
-              front_new = foldr (\x y -> (get_ops_f x) ++ y) [] state
+              front_new = foldr (\x y -> (getPred x) ++ y) [] state
               
               --generate the successor-list of pseudo-op
-              back_new = foldr (\x y -> (get_ops_b x) ++ y) [] state
+              back_new = foldr (\x y -> (getSucc x) ++ y) [] state
               
           in Op pid oid sp_new ops_new ps front_new back_new --pseudo-op
                                                 
@@ -351,7 +353,7 @@ searchValleys ps = map searchValley ps
 searchValley :: Process -> Operation
 searchValley (o:rest) = searchValley_h rest o
 searchValley_h [] valley = valley
-searchValley_h (o:rest) valley = if get_space o <= get_space valley
+searchValley_h (o:rest) valley = if getSpace o <= getSpace valley
                                  then searchValley_h rest o
                                  else searchValley_h rest valley             
 
@@ -438,13 +440,13 @@ standardize_h (proc:rest) procs_std m_start state_s m_end state_e m_one ops_one
         proc' = removeMs proc ----remove operations matching M1-M4 in the process
         length_proc' = length proc' 
         start = head proc' --start op
-        start_sp = get_space start --space consumption of start op 
+        start_sp = getSpace start --space consumption of start op 
         sec = head $ drop 1 proc'--second op
-        sec_sp = get_space sec --space consumption of the second op
+        sec_sp = getSpace sec --space consumption of the second op
         end = last proc' --end op
-        end_sp = get_space end --space consumption of end op
+        end_sp = getSpace end --space consumption of end op
         vor_end = last $ init proc' --second last op
-        vor_end_sp = get_space vor_end --space consumption of the second last op
+        vor_end_sp = getSpace vor_end --space consumption of the second last op
         --space consumption of a single op
         one_sp | length_proc' == 1 = start_sp
                | length_proc' == 2 = min start_sp end_sp --the higher one will be removed
@@ -480,16 +482,16 @@ removeMs_h p_new p_old@(oi:oi1:oi2:oi3:rest)
          ops_return = reverse $ take 2 p_new
          --oi >= oi1 >= oi2
          p_old_matchM1 = let --get oi1's predecessor, oi1 it self, and its successors
-                             ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
-                                         ++ get_ops_b oi1
+                             ops_toAdd = getPred oi1 ++ [clearPredSucc oi1]
+                                         ++ getSucc oi1
                              
                              --let oi memorize the above operations as its successors
                              oi' = addSucc oi ops_toAdd
                          in ops_return ++ (oi':oi2:oi3:rest)
          
          --oi <= oi1 <= oi2
-         p_old_matchM2 = let ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
-                                         ++ get_ops_b oi1
+         p_old_matchM2 = let ops_toAdd = getPred oi1 ++ [clearPredSucc oi1]
+                                         ++ getSucc oi1
                              
                              --let oi2 memorize the above operations as its predecessors
                              oi2' = addPred oi2 ops_toAdd
@@ -498,18 +500,18 @@ removeMs_h p_new p_old@(oi:oi1:oi2:oi3:rest)
          --oi is the peak in pattern M3
          p_old_matchM3 = let --get oi1's predecessor, oi1 itself, and its successors,
                              --oi2's prdecessor, oi2 itself, and its successors
-                             ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
-                                         ++ get_ops_b oi1 ++ get_ops_f oi2
-                                         ++ [clearPredSucc oi2] ++ get_ops_b oi2
+                             ops_toAdd = getPred oi1 ++ [clearPredSucc oi1]
+                                         ++ getSucc oi1 ++ getPred oi2
+                                         ++ [clearPredSucc oi2] ++ getSucc oi2
                              
                              --let oi memorize the above operations as its successors
                              oi' = addSucc oi ops_toAdd
                          in ops_return ++ (oi':oi3:rest)
          
          --oi3 is the peak in pattern M4                
-         p_old_matchM4 = let ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
-                                         ++ get_ops_b oi1 ++ get_ops_f oi2
-                                         ++ [clearPredSucc oi2] ++ get_ops_b oi2
+         p_old_matchM4 = let ops_toAdd = getPred oi1 ++ [clearPredSucc oi1]
+                                         ++ getSucc oi1 ++ getPred oi2
+                                         ++ [clearPredSucc oi2] ++ getSucc oi2
                              
                              --let oi3 memorize the above operations as its predecessors
                              oi3' = addPred oi3 ops_toAdd
@@ -523,12 +525,12 @@ removeMs_h p_new p_old@[oi,oi1,oi2]
         where
          p_new' = (drop 2 p_new)
          ops_return = reverse $ take 2 p_new
-         p_old_matchM1 = let ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
-                                         ++ get_ops_b oi1
+         p_old_matchM1 = let ops_toAdd = getPred oi1 ++ [clearPredSucc oi1]
+                                         ++ getSucc oi1
                              oi' = addSucc oi ops_toAdd
                          in ops_return ++ [oi',oi2]
-         p_old_matchM2 = let ops_toAdd = get_ops_f oi1 ++ [clearPredSucc oi1]
-                                         ++ get_ops_b oi1
+         p_old_matchM2 = let ops_toAdd = getPred oi1 ++ [clearPredSucc oi1]
+                                         ++ getSucc oi1
                              oi2' = addPred oi2 ops_toAdd
                          in ops_return ++ [oi,oi2']
 
@@ -564,7 +566,7 @@ scan procs valleys = let --initiate the heap
                          
                          --space of current state, which equals to the sum of space
                          --of the first op of all processes
-                         s =  foldl (\x y -> x + (get_space $ head y)) 0 procs
+                         s =  foldl (\x y -> x + (getSpace $ head y)) 0 procs
                          
                          --peak space consumption of the schedule
                          m = s
@@ -598,8 +600,8 @@ scan_h (h:rest) procs valleys s m schedule
               
               --space usage and max. sapce usage for the next round
               s_new = if (not isGlobalValley)
-                      then s + (get_space (selected_proc !! 2)
-                             - get_space (selected_proc !! 0))
+                      then s + (getSpace (selected_proc !! 2)
+                             - getSpace (selected_proc !! 0))
                       else s
               m_new = if (not isGlobalValley)
                       then max m (s + dist_h)
@@ -637,8 +639,8 @@ scan_h (h:rest) procs valleys s m schedule
               --If that is not the case, let the new heap be the old heap without
               --the min-element. 
               heap_new = if (length selected_proc >= 4) && (not isGlobalValley)
-                         then let elem_new = ((get_space(selected_proc!!3)
-                                             - get_space(selected_proc!!2)), index_h)
+                         then let elem_new = ((getSpace(selected_proc!!3)
+                                             - getSpace(selected_proc!!2)), index_h)
                               in Heap.sort $ elem_new:rest
                          else rest
           in scan_h heap_new procs' valleys s_new m_new schedule_new
@@ -656,29 +658,28 @@ toHeap = Heap.sort . toHeap_h 0
 toHeap_h :: Int -> [Process] -> [(Int,Int)]
 toHeap_h _ [] = []
 toHeap_h index (p:rest)=
-        ((get_space (p!!1) - get_space (p!!0)),index):toHeap_h (index+1) rest
+        ((getSpace (p!!1) - getSpace (p!!0)),index):toHeap_h (index+1) rest
 ------------------------------------------------------------------------------------------------------------------
 --some general help-functions
 
 --functions for data type Operation
-get_pid (Op pid _ _ _ _ _ _) = pid
-get_oid (Op _ oid _ _ _ _ _) = oid
-get_space (Op _ _ sp _ _ _ _) = sp
-get_ops (Op _ _ _ ops _ _ _) = ops
-get_subps (Op _ _ _ _ subps _ _) = subps
-get_ops_f (Op _ _ _ _ _ ops_f _) = ops_f
-get_ops_b (Op _ _ _ _ _ _ ops_b) = ops_b
+getPid (Op pid _ _ _ _ _ _) = pid
+getOid (Op _ oid _ _ _ _ _) = oid
+getSpace (Op _ _ sp _ _ _ _) = sp
+getOps (Op _ _ _ ops _ _ _) = ops
+getPred (Op _ _ _ _ _ pred _) = pred
+getSucc (Op _ _ _ _ _ _ succ) = succ
 --add sub-processes to an op
-add_subps (Op pid oid sp ops subps front back) subps' =
-        (Op pid oid sp ops (subps ++ subps') front back)
+addSubPs (Op pid oid sp ops subps pred succ) subps' =
+        (Op pid oid sp ops (subps ++ subps') pred succ)
 
-addPred (Op pid oid sp ops ps ops_f ops_b) ops_f_toAdd =
-        (Op pid oid sp ops ps (ops_f_toAdd ++ ops_f) ops_b)
+addPred (Op pid oid sp ops ps pred succ) predToAdd =
+        (Op pid oid sp ops ps (predToAdd ++ pred) succ)
 
-addSucc (Op pid oid sp ops ps ops_f ops_b) ops_b_toAdd =
-        (Op pid oid sp ops ps ops_f (ops_b ++ ops_b_toAdd))
+addSucc (Op pid oid sp ops ps pred succ) succToAdd =
+        (Op pid oid sp ops ps pred (succ ++ succToAdd))
         
-clearPredSucc (Op pid oid sp ops ps ops_f ops_b) =
+clearPredSucc (Op pid oid sp ops ps pred succ) =
         (Op pid oid sp ops ps [] [])
 
 --get-functions for 7er-tupel
@@ -695,11 +696,15 @@ last_7 (_,_,_,_,_,_,x) = x
 print_list list = putStrLn $ toString_list list 
 toString_list [] = ""
 toString_list (x:rest) = (show x) ++ "\n\n" ++ toString_list rest
------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
------------------------------------------------------------------------------------------------------------------
-
----------------------------------------------------------------------------------------------------                 
+--------------------------------------------------------------------------------
+--example tree in figure 1 in the thesis
+p1 = [(1,[2,5,4,1]),(2,[3,1]),(3,[1,3])]
+r1 = [Rel 1 1 [3]]
+test_p1 = print_spopt_schedule p1 r1
+--------------------------------------------------------------------------------                 
+--another example tree for testing
 p5 = [(1,[2,8,4,16,1]),(2,[5,1,2]),(3,[8,2,2,1]),(4,[5,1,9,2,1]),(5,[8,8,1]),(6,[3,1,3])]
 r5 = [(Rel 1 2 [2,3]),(Rel 4 1 [5]),(Rel 2 2 [6])]                        
 test_p5 = print_spopt_schedule p5 r5
@@ -723,22 +728,4 @@ test_p5_sub_41 = print_spopt_schedule p5_sub_41 []
 p5_mp_14 = [(1,[2,8,17,11,11,6,18,3,7,5,7]),(4,[5,9,9,2,10,3,2])]
 test_p5_mp_14 = print_spopt_schedule p5_mp_14 []
 --opt = 20
-------------------------------------------------------------------------------------------------
-p6_s1 = [(1,[2,6,5,2,4]),(2,[3,1])]
-test_p6_s1 = print_spopt_schedule p6_s1 []
-
-p6 = [(1,[2,5,4,1]),(2,[1,3]),(3,[3,1])]
-r6 = [Rel 1 1 [2]]
-test_p6 = print_spopt_schedule p6 r6
------------------------------------------------
-
-p:: [(Int, [Int])]
-p = [(1,[1,3,2,3]),(2,[3]),(3,[2,3,1]),(4,[3,1]),(5,[1,5,4])]
-r = [Rel 4 1 [3],Rel 5 1 [2],Rel 5 2 [1,4]]
-
-p1::[(Int,[Int])]
-p1 = [(1,[1,2]),(2,[3,4]),(3,[5,6,5])]
-r1 = [Rel 1 1 [2],Rel 2 1 [3]]    
-
-p1_t1::[(Int,[Int])]
-p1_t1 = [(2,[4]),(3,[5,6,5])]
+--------------------------------------------------------------------------------
