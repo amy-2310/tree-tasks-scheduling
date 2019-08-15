@@ -1,12 +1,11 @@
 module OptSpaceRecursive
-        (spopt_schedule, print_spopt_schedule, spoptnr, toProgram, print_list)
+        (spopt_schedule, print_spopt_schedule, print_list)
         where
 import TopoSort
 import Data.List
 import Data.Maybe
 import Data.Heap (Heap)
 import qualified Data.Heap as Heap
-import Debug.Trace
 
 --data types for input
 type Input_Process = (PId, [Space])
@@ -696,36 +695,4 @@ last_7 (_,_,_,_,_,_,x) = x
 print_list list = putStrLn $ toString_list list 
 toString_list [] = ""
 toString_list (x:rest) = (show x) ++ "\n\n" ++ toString_list rest
---------------------------------------------------------------------------------
 
---------------------------------------------------------------------------------
---example tree in figure 1 in the thesis
-p1 = [(1,[2,5,4,1]),(2,[3,1]),(3,[1,3])]
-r1 = [Rel 1 1 [3]]
-test_p1 = print_spopt_schedule p1 r1
---------------------------------------------------------------------------------                 
---another example tree for testing
-p5 = [(1,[2,8,4,16,1]),(2,[5,1,2]),(3,[8,2,2,1]),(4,[5,1,9,2,1]),(5,[8,8,1]),(6,[3,1,3])]
-r5 = [(Rel 1 2 [2,3]),(Rel 4 1 [5]),(Rel 2 2 [6])]                        
-test_p5 = print_spopt_schedule p5 r5
-
---subtree under op 2 2
-p5_sub_22 = [(1,[2]),(6,[3,1,3])]
-test_p5_sub_22 = print_spopt_schedule p5_sub_22 []
---optimum = 5, space = [5,3,5]
-
---subtree under op 1 2
-p5_sub_12 = [(2,[5,1,5,3,5]), (1,[4,16,1]), (3,[8,2,2,1])]
-test_p5_sub_12 = print_spopt_schedule p5_sub_12 []
---opt = 18, space = [17,11,11,6,18,3,7,5,7]
-
---subtree under op 4 1
-p5_sub_41 =  [(4,[1,9,2,1]),(5,[8,8,1])]
-test_p5_sub_41 = print_spopt_schedule p5_sub_41 []
---opt = 10, space = [9,9,2,10,3,2]
-
---optimize two main processes p1 and p4
-p5_mp_14 = [(1,[2,8,17,11,11,6,18,3,7,5,7]),(4,[5,9,9,2,10,3,2])]
-test_p5_mp_14 = print_spopt_schedule p5_mp_14 []
---opt = 20
---------------------------------------------------------------------------------
