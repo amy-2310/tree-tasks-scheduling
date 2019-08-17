@@ -1,5 +1,5 @@
 module OptSpaceRecursive
-        (spopt_schedule, print_spopt_schedule, print_list)
+        (spopt_schedule, print_spopt_schedule, print_list, Input_Process)
         where
 import TopoSort
 import Data.List
