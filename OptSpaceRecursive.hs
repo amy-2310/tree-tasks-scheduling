@@ -208,7 +208,7 @@ toOpOut (Op pid oid sp _ _ _ _) = OP pid oid sp
 -------------------------------------------------------------------------------------------------------------------
 {-
 spoptnr optimizes tree-like processes and returned a pseudo-process.
-Firstly, by optimizing n tree-like processes, we get n linear pseudo-processes. (map f procs)
+First, by optimizing n tree-like processes, we get n linear pseudo-processes. (map f procs)
 Then, by optimizing the n linear pseudo-processes, we get one pseudo-process. (spoptn_trans)
 -}
 spoptnr :: [Process] -> Process 
@@ -461,7 +461,7 @@ removeMs :: Process -> Process
 removeMs = removeMs_h []
 
 {-
-The help-function removeMs_h go through the operations of a process recursively.
+The help-function removeMs_h goes through the operations of a process recursively.
 In each round, it checks if the first four operations match any of the patterns
 M1-M4. If that is the case, the operations are removed from the process and
 memorized in the peak-op of the pattern. 

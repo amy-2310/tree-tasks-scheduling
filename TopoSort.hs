@@ -52,7 +52,7 @@ build_adjList relations =
 
 
 {-
-Help-function for topo_sort: sort the relations recursively
+Help-function for topo_sort: sort the relations recursively.
 In each round, find the next relation that does not have any predecessor in the
 adjacency list. Insert it to the sorted list and update the adjacency list. Go
 to the next round.
