@@ -1,4 +1,4 @@
-# tree-tasks-scheduling
+# tree-tasks-scheduling optimizing space consumption
 This is a project for my bachelor thesis with the title *Analysis and implementation of variants algorithms computing the minimal space consumption of tree-like processes*. The goal is to find an efficient algorithm computing a space-optimal schedule for tree-like processes.<br />
 Definition of tree-like processes: all main-processes start at the same time; each process can generate one or
 more new processes; all processes end at the same time.<br />
