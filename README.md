@@ -2,7 +2,7 @@
 This is a project for my bachelor thesis with the title *Analysis and implementation of variants algorithms computing the minimal space consumption of tree-like processes*. The goal is to find an efficient algorithm computing a space-optimal schedule for tree-like processes.<br />
 Definition of tree-like processes: all main-processes start at the same time; each process can generate one or
 more new processes; all processes end at the same time.<br />
-Such tree-like processes can be modled by a directed tree: the root node represents the start of executing the set of processes; other nodes represent tasks (operations); an edge pointing from node A to node B means that B should
+Such tree-like processes can be modled by a directed tree: the root node represents the start of executing the set of processes; other nodes represent tasks (operations) and each of them is marked with its space consumption; an edge pointing from node A to node B means that B should
 happen directly after A was executed.<br />
  
 Two algorithms are designed, analyzed and implemented in Haskell. The first one, *recursive SPOPTN*, uses an already existing Algorithm *SPOPTN* [1] and the concept of divide-and-conquer to solve the problem in polinomial time. Although its correctness has not yet been formally proven, the results of random testing show that the schedule delivered by *recursive SPOPTN* is likely space-optimal. The main function `print_spopt_schedule` is defined in module `OptSpaceRecursive`:
